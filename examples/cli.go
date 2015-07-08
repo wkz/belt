@@ -8,16 +8,9 @@ import (
 	"github.com/wkz/belt"
 )
 
-func quit(key belt.KeyCoder, b *belt.Belt) {
-	b.Detach()
-	os.Exit(0)
-}
-
 func main() {
 	b := belt.NewBelt(os.Stdin, os.Stdout)
 	b.Prompt = "belt> "
-
-	b.Bind(belt.Ctrl('d'), quit)
 	
 	ok := b.Attach()
 	if !ok {
@@ -33,6 +26,4 @@ func main() {
 
 		fmt.Printf("line:%v\n", line)
 	}
-
-	b.Detach()
 }

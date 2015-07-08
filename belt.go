@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	
 	"syscall"
-	"unicode/utf8"
 	"unsafe"
 )
 
+var (
+	ErrorEOL = errors.New("End of Line")
+	ErrorUtf8 = errors.New("Input is not valid UTF-8")
+)
 const (
 	ESC = 0x1b
 )
@@ -36,93 +40,79 @@ func isTTY(f *os.File) bool {
 	return tcgetattr(f.Fd(), &termios)
 }
 
-type LineBuffer struct {
-	buf []rune
-	pos int
+type Screen struct {
+	out io.Writer
+	buf *LineBuffer
 }
 
-func (lb LineBuffer) String() string {
-	return string(lb.buf)
-}
-
-func NewLineBuffer(size uint) *LineBuffer {
-	return &LineBuffer{ buf: make([]rune, 0, size) }
-}
-
-func (lb *LineBuffer) Seek(offs int, whence int) (int, error) {
-	var new int
-
-	if (whence == 0) {
-		new = offs
-	} else if (whence == 1) {
-		new = lb.pos + offs
-	} else {
-		new = len(lb.buf) + offs
+func (s *Screen) seekOut(diff int) error {
+	if diff == 0 {
+		return nil
 	}
 
-	if new < 0 || new >= len(lb.buf) {
-		return 0, errors.New("Seek out of range")
+	movecmd := []byte{ ESC, '[', '9', 'X'}
+	if diff > 0 {
+		movecmd[3] = 'C'
+	} else { 
+		movecmd[3] = 'D'
+		diff *= -1
 	}
 
-	lb.pos = new
-	return lb.pos, nil
+	for diff > 9 {
+		_, err := s.out.Write(movecmd)
+		if err != nil {
+			return err
+		}
+		diff -= 9
+	}
+
+	movecmd[2] = '0' + byte(diff)
+	_, err := s.out.Write(movecmd)
+	return err
 }
+
+func (s *Screen) Seek(n, whence int) (int, error) {
+	start := s.buf.pos
 	
-
-func (lb *LineBuffer) Insert(s string) {
-	// make room for `s`
-	lb.buf = lb.buf[:len(lb.buf) + len(s)]
-	// bump the right portion of the string `len(s)` steps
-	copy(lb.buf[lb.pos+len(s):], lb.buf[lb.pos:])
-	// insert `s` in the middle
-	copy(lb.buf[lb.pos:lb.pos+len(s)], []rune(s))
-
-	lb.pos += len(s)
-}
-
-func (lb *LineBuffer) Delete(n int) {
-	if (n > lb.pos) {
-		n = lb.pos
+	end, err := s.buf.Seek(n, whence)
+	if err != nil {
+		return end, err
 	}
 
-	if lb.pos == len(lb.buf) {
-		lb.buf = lb.buf[:len(lb.buf) - n]
-	} else {
-		lb.buf = append(lb.buf[:lb.pos - n], lb.buf[lb.pos:]...)
+	return end, s.seekOut(end - start)
+}
+
+func (s *Screen) Insert(str string) error {
+	after := s.buf.After()
+	
+	_, err := s.out.Write([]byte{ ESC, '[', 'K' })
+	if err != nil {
+		return err
 	}
 
-	lb.pos -= n
+	_, err = s.out.Write([]byte(str + after))
+	if err != nil {
+		return err
+	}
+
+	if len(after) != 0 {
+		err = s.seekOut(-len(after))
+	}
+
+	s.buf.Insert(str)	
+	return err
 }
 
-type KeyCoder interface {
-	KeyCode() []byte
-}
-
-type Char byte
-type Ctrl byte
-
-func (c Char) KeyCode() []byte {
-	return []byte{ byte(c) }
-}
-
-func (c Ctrl) KeyCode() []byte {
-	return []byte{ (byte(c) & 0x1f) }
-}
-
-
-type Binding struct {
-	Key KeyCoder
-	Action  func(KeyCoder, *Belt)
-}
-
-func (b Binding) Match(input []byte) (bool, int) {
-	keycode := b.Key.KeyCode()
-	return bytes.Equal(input[:len(keycode)], keycode), len(keycode)
+func (s *Screen) Flush() string {
+	s.out.Write([]byte{'\r', ESC, '[', 'K'})
+	return s.buf.Flush()
 }
 
 type Belt struct {
-	i,o *os.File
-	buf *LineBuffer
+	i *os.File
+	in bytes.Buffer
+	out *Screen
+	
 	savedTermios syscall.Termios
 
 	Prompt string
@@ -134,11 +124,13 @@ func NewBelt(i, o *os.File) *Belt {
 		return nil
 	}
 	
-	return &Belt {
+	b := &Belt {
 		i: i,
-		o: o,
-		buf: NewLineBuffer(100),
+		out: &Screen{ out: o, buf: NewLineBuffer(100) },
 	}
+
+	b.BindSet(DefaultBindings)
+	return b
 }
 
 func (b *Belt) Attach() bool {
@@ -149,8 +141,16 @@ func (b *Belt) Attach() bool {
 
 	var termios = b.savedTermios
 
-	termios.Lflag -= (syscall.ECHO | syscall.ICANON | syscall.ISIG)
-	termios.Iflag -= (syscall.INPCK | syscall.ISTRIP)
+	// Emulate cfmakeraw(3)
+	termios.Iflag -= (syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK |
+		syscall.ISTRIP | syscall.INLCR | syscall.IGNCR |
+		syscall.ICRNL | syscall.IXON)
+	// termios.Oflag -= syscall.OPOST
+	termios.Lflag -= (syscall.ECHO | syscall.ECHONL | syscall.ICANON |
+		syscall.ISIG | syscall.IEXTEN)
+	termios.Cflag -= (syscall.CSIZE | syscall.PARENB);
+	termios.Cflag += syscall.CS8
+	
 	return tcsetattr(b.i.Fd(), &termios)
 }
 
@@ -158,73 +158,102 @@ func (b *Belt) Detach() bool {
 	return tcsetattr(b.i.Fd(), &b.savedTermios)
 }
 
-func (b *Belt) Bind(key KeyCoder, action func(KeyCoder, *Belt)) {
+func (b *Belt) Bind(key KeyCoder, action Action) {
 	b.bindings = append(b.bindings, Binding{Key: key, Action: action})
 }
 
-func (b *Belt) consume(input []byte) (int, error) {
-	for _, binding := range b.bindings {
-		if yes, keylen := binding.Match(input); yes {
-			binding.Action(binding.Key, b)
-			input = input[keylen:]
-			return keylen, nil
+func (b *Belt) BindSet(bindings []Binding) {
+	for _, binding := range bindings {
+		fmt.Printf("binding %s to %#v\n", binding.Key, binding.Action)
+		b.Bind(binding.Key, binding.Action)
+	}
+}
+
+func skipESC(buf *bytes.Buffer) error {
+	c, err := buf.ReadByte()
+	if err != nil {
+		return err
+	}
+
+	if c == '[' {
+		for {
+			c, err = buf.ReadByte()
+			if err != nil {
+				return err
+			}
+
+			if c >= '@' && c <= '~' {
+				break
+			}
 		}
 	}
 
-	// STRIP ANY CTRL/META/ANSI INPUT HERE
-	
-	r, sz := utf8.DecodeRune(input)
-	if r == utf8.RuneError {
-		return sz, nil // RETURN SOME ERR
+	return nil
+}
+
+func (b *Belt) consume() error {
+	// first, if a binding matches the input, run it
+	for _, binding := range b.bindings {
+		if ok, keylen := binding.Match(b.in.Bytes()); ok {
+			_ = b.in.Next(keylen)
+			return binding.Action(binding.Key, b)
+		}
 	}
 
-	b.buf.Insert(string(r))
-	fmt.Printf("%+ x", r)
-	return sz, nil
+	// then, skip any unbound escape sequences ...
+	c, err := b.in.ReadByte()
+	if c == ESC {
+		return skipESC(&b.in)
+	}
+
+	// ... or control keys
+	if c < 0x20 {
+		return nil
+	}
+
+	// ok, nothing special, put the byte back ...
+	err = b.in.UnreadByte()
+	if err != nil {
+		return err
+	}
+
+	// ... and parse it as a UTF-8 rune
+	r, _, err := b.in.ReadRune()
+	if err != nil {
+		return err
+	}
+
+	b.out.Insert(string(r))
+	return nil
 }
 
 func (b *Belt) ReadLine() (string, error) {
 	var err error
 
-	input := make([]byte, 64)
-
+	fmt.Fprintf(b.out.out, b.Prompt)
+	
 	for {
-		n, err := b.i.Read(input)
-		if err != nil {
-			break
-		}
-
-		for n > 0 {
-			_n, err := b.consume(input)
+		for b.in.Len() > 0 {
+			err = b.consume()
 			if err != nil {
-				break
+				goto out
 			}
-
-			n -= _n
-			input = input[_n:]
 		}
 
-		if n > 0 {
-			break
+		tmp := make([]byte, 64)
+		n, err := b.i.Read(tmp)
+		b.in.Write(tmp[:n])
+
+		if err != nil {
+			goto out
 		}
+
+	}
+out:
+	if err == ErrorEOL {
+		err = nil
 	}
 
-	return "", err
+	return b.out.Flush(), err
 }
-
-// func isTTY() bool {
-// 	var stdin = syscall.Stdin
-// 	var termios syscall.Termios
-
-// 	_, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(stdin),
-// 		syscall.TCGETS, uintptr(unsafe.Pointer(&termios)), 0, 0, 0)
-
-// 	return err == 0
-// }
-
-// func ReadLine (string, err) {
-// 	b = make([]byte, 1024)
-
-	
-// }
 
