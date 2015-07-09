@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	
@@ -11,16 +12,12 @@ import (
 func main() {
 	b := belt.NewBelt(os.Stdin, os.Stdout)
 	b.Prompt = "belt> "
-	
-	ok := b.Attach()
-	if !ok {
-		log.Fatal("Could not attach to stdin")
-	}
-	
+		
 	for {
 		line, err := b.ReadLine()
-		if err != nil {
-			b.Detach()
+		if err == io.EOF {
+			break;
+		} else if err != nil {
 			log.Fatal(err)
 		}
 

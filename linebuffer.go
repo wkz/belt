@@ -1,11 +1,8 @@
 package belt
 
 import (
-	"errors"
-)
-
-var (
-	ErrorSeek = errors.New("Seek out of range")
+	"os"
+	"unicode/utf8"
 )
 
 type LineBuffer struct {
@@ -15,6 +12,10 @@ type LineBuffer struct {
 
 func NewLineBuffer(size uint) *LineBuffer {
 	return &LineBuffer{ buf: make([]rune, 0, size) }
+}
+
+func (lb LineBuffer) Pos() int {
+	return lb.pos
 }
 
 func (lb LineBuffer) After() string {
@@ -33,43 +34,46 @@ func (lb *LineBuffer) Flush() (out string) {
 	return
 }
 
-func (lb *LineBuffer) Seek(offs int, whence int) (int, error) {
-	var new int
+func (lb *LineBuffer) Seek(offs int, whence int) int {
+	// os.SEEK_SET
+	new := offs
 
-	if (whence == 0) {
-		new = offs
-	} else if (whence == 1) {
+	if whence == os.SEEK_CUR {
 		new = lb.pos + offs
-	} else {
+	} else if whence == os.SEEK_END {
 		new = len(lb.buf) + offs
 	}
-
-	if new < 0 || new >= len(lb.buf) {
-		return 0, ErrorSeek
+	
+	if new < 0 {
+		new = 0
+	} else if new >= len(lb.buf) {
+		new = len(lb.buf)
 	}
-
+	
 	lb.pos = new
-	return lb.pos, nil
+	return lb.pos
 }
 	
 
 func (lb *LineBuffer) Insert(s string) {
+	width := utf8.RuneCountInString(s)
+	
 	// make room for `s`
-	if len(lb.buf) + len(s) > cap(lb.buf) {
-		tmp := make([]rune, len(lb.buf) + len(s))
+	if len(lb.buf) + width > cap(lb.buf) {
+		tmp := make([]rune, len(lb.buf) + width)
 		copy(tmp, lb.buf)
 		lb.buf = tmp
 	} else {
-		lb.buf = lb.buf[:len(lb.buf) + len(s)]
+		lb.buf = lb.buf[:len(lb.buf) + width]
 	}
 
 	// bump the right portion of the string `len(s)` steps
-	copy(lb.buf[lb.pos+len(s):], lb.buf[lb.pos:])
+	copy(lb.buf[lb.pos+width:], lb.buf[lb.pos:])
 
 	// insert `s` in the middle
-	copy(lb.buf[lb.pos:lb.pos+len(s)], []rune(s))
+	copy(lb.buf[lb.pos:lb.pos+width], []rune(s))
 
-	lb.pos += len(s)
+	lb.pos += width
 }
 
 func (lb *LineBuffer) Delete(n int) {

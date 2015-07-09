@@ -13,39 +13,39 @@ func assert(t *testing.T, lb *LineBuffer, s, e string) {
 func TestLineBufferInsert(t *testing.T) {
 
 	lb := NewLineBuffer(64)
-	assert(t, lb, "", "New buffer not empty")
+	assert(t, lb, "", "New")
 
 	lb.Insert("d")
 	assert(t, lb, "d", "Start, empty")
 
 	lb.Seek(0, 0)
-	lb.Insert("a")
-	assert(t, lb, "ad", "Start, non-empty")
+	lb.Insert("å")
+	assert(t, lb, "åd", "Start, non-empty")
 
-	lb.Seek(2, 0)
+	lb.Seek(1, 0)
 	lb.Insert("c")
-	assert(t, lb, "acd", "Middle")
+	assert(t, lb, "åcd", "Middle")
 
 	lb.Seek(-1, 1)
 	lb.Insert("b")
-	assert(t, lb, "abcd", "Middle, relative seek")
+	assert(t, lb, "åbcd", "Middle, relative seek")
 }
 
 func TestLineBufferDelete(t *testing.T) {
 
 	lb := NewLineBuffer(64)
-	assert(t, lb, "", "New buffer not empty")
+	assert(t, lb, "", "New")
 
-	lb.Insert("abcd")
+	lb.Insert("åbcd")
 
 	lb.Delete(1)
-	assert(t, lb, "abc", "End")
+	assert(t, lb, "åbc", "End")
 
 	lb.Seek(-1, 1)
 	lb.Delete(1)
-	assert(t, lb, "ac", "Middle")
+	assert(t, lb, "åc", "Middle")
 
 	lb.Seek(0, 0)
 	lb.Delete(1)
-	assert(t, lb, "ac", "Start")
+	assert(t, lb, "åc", "Start")
 }
