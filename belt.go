@@ -72,8 +72,11 @@ type Belt struct {
 
 	savedTermios syscall.Termios
 
-	Prompt   string
 	bindings []Binding
+	kill string
+
+	Prompt   string
+	Completer Completer
 }
 
 func NewBelt(in *os.File, out io.Writer) *Belt {
@@ -187,31 +190,46 @@ func (b *Belt) Insert(str string) error {
 	return err
 }
 
-func (b *Belt) Delete(n int) error {
+func (b *Belt) Delete(n int) (string, error) {
 	after := b.Line.After()
 	aw := utf8.RuneCountInString(after)
 
 	err := b.seekOut(-n)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	_, err = b.out.Write([]byte{ESC, '[', 'K'})
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if aw != 0 {
 		_, err = b.out.Write([]byte(after))
 		if err != nil {
-			return err
+			return "", err
 		}
 
 		err = b.seekOut(-aw)
 	}
 
-	b.Line.Delete(n)
-	return err
+	return b.Line.Delete(n), err
+}
+
+func (b *Belt) Printf(format string, v ...interface{}) {
+	b.out.Write([]byte{'\r', ESC, '[', 'K'})
+
+	b.detach()
+	fmt.Fprintf(b.out, format, v...)
+	b.attach()
+
+	fmt.Fprintf(b.out, b.Prompt)
+
+	line := b.Line.String()
+	lw := utf8.RuneCountInString(line)
+	
+	b.out.Write([]byte(line))
+	b.seekOut(b.Line.Pos() - lw)
 }
 
 func (b *Belt) flush() string {

@@ -9,10 +9,17 @@ import (
 	"github.com/wkz/belt"
 )
 
+var keywords = belt.ListCompleter([]string {
+	"foo",
+	"bar",
+	"baz",
+})
+
 func main() {
 	b := belt.NewBelt(os.Stdin, os.Stdout)
 	b.Prompt = "belt> "
-		
+	b.Completer = keywords
+	
 	for {
 		line, err := b.ReadLine()
 		if err == io.EOF {

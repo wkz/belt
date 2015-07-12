@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"unicode/utf8"
 )
 
 const (
+	TAB = 0x09
 	BACKSPACE = 0x7f
 	ESC       = 0x1b
 )
@@ -85,7 +87,8 @@ func End(key KeyCoder, b *Belt) error {
 }
 
 func Backspace(key KeyCoder, b *Belt) error {
-	return b.Delete(1)
+	_, err := b.Delete(1)
+	return err
 }
 
 func Delete(key KeyCoder, b *Belt) error {
@@ -94,7 +97,25 @@ func Delete(key KeyCoder, b *Belt) error {
 		return err
 	}
 
-	return b.Delete(1)
+	_, err = b.Delete(1)
+	return err
+}
+
+func Kill(key KeyCoder, b *Belt) error {
+	b.kill = b.Line.After()
+	aw := utf8.RuneCountInString(b.kill)
+
+	err := End(key, b)
+	if err != nil {
+		return err
+	}
+
+	_, err = b.Delete(aw)
+	return err
+}
+
+func Yank(key KeyCoder, b *Belt) error {
+	return b.Insert(b.kill)
 }
 
 func EOF(key KeyCoder, b *Belt) error {
@@ -105,16 +126,31 @@ func EOL(key KeyCoder, b *Belt) error {
 	return ErrorEOL
 }
 
+func test(key KeyCoder, b *Belt) error {
+	b.Printf("testing\nfoo\nbar\n")
+	return nil
+}
+
 var DefaultBindings = []Binding{
 	{Key: Ctrl('a'), Action: Start},
 	{Key: Ctrl('b'), Action: Back},
+	{Key: CSI("D"), Action: Back},
 	{Key: Ctrl('e'), Action: End},
 	{Key: Ctrl('f'), Action: Forward},
+	{Key: CSI("C"), Action: Forward},
 
 	{Key: Ctrl('d'), Action: EOF},
 	{Key: Ctrl('j'), Action: EOL},
 
+	{Key: Ctrl('k'), Action: Kill},
+	{Key: Ctrl('y'), Action: Yank},
+
 	{Key: Ctrl('h'), Action: Backspace},
 	{Key: Char(BACKSPACE), Action: Backspace},
 	{Key: CSI("3~"), Action: Delete},
+
+	{Key: Char(TAB), Action: Complete},
+
+
+	{Key: Ctrl('t'), Action: test},
 }

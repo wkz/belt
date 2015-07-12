@@ -2,6 +2,7 @@ package belt
 
 import (
 	"os"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -20,6 +21,22 @@ func (lb LineBuffer) Pos() int {
 
 func (lb LineBuffer) After() string {
 	return string(lb.buf[lb.pos:])
+}
+
+func (lb LineBuffer) PreviousWord() string {
+	var i int
+
+	if lb.pos == 0 {
+		return ""
+	}
+	
+	for i = lb.pos - 1; i > 0; i -= 1 {
+		if unicode.IsSpace(lb.buf[i]) {
+			break
+		}
+	}
+
+	return string(lb.buf[i:lb.pos])
 }
 
 func (lb LineBuffer) String() string {
@@ -76,10 +93,14 @@ func (lb *LineBuffer) Insert(s string) {
 	lb.pos += width
 }
 
-func (lb *LineBuffer) Delete(n int) {
-	if (n > lb.pos) {
+func (lb *LineBuffer) Delete(n int) (killed string) {
+	if n < 0 {
+		n = 0
+	} else if n > lb.pos {
 		n = lb.pos
 	}
+	
+	killed = string(lb.buf[lb.pos:lb.pos + n])
 
 	if lb.pos == len(lb.buf) {
 		lb.buf = lb.buf[:len(lb.buf) - n]
@@ -88,4 +109,5 @@ func (lb *LineBuffer) Delete(n int) {
 	}
 
 	lb.pos -= n
+	return
 }
