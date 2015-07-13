@@ -8,8 +8,8 @@ import (
 	"log"
 	"os"
 
-	"runtime"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"unicode/utf8"
@@ -73,9 +73,9 @@ type Belt struct {
 	savedTermios syscall.Termios
 
 	bindings []Binding
-	kill string
+	kill     string
 
-	Prompt   string
+	Prompt    string
 	Completer Completer
 }
 
@@ -96,7 +96,7 @@ func NewBelt(in *os.File, out io.Writer) *Belt {
 
 func functionName(fn interface{}) string {
 	full := runtime.FuncForPC(reflect.ValueOf(fn).Pointer()).Name()
-	return full[strings.LastIndex(full, ".") + 1:]
+	return full[strings.LastIndex(full, ".")+1:]
 }
 
 func (b *Belt) Bind(key KeyCoder, action Action) {
@@ -191,6 +191,10 @@ func (b *Belt) Insert(str string) error {
 }
 
 func (b *Belt) Delete(n int) (string, error) {
+	if n > b.Line.Pos() {
+		n = b.Line.Pos()
+	}
+
 	after := b.Line.After()
 	aw := utf8.RuneCountInString(after)
 
@@ -227,7 +231,7 @@ func (b *Belt) Printf(format string, v ...interface{}) {
 
 	line := b.Line.String()
 	lw := utf8.RuneCountInString(line)
-	
+
 	b.out.Write([]byte(line))
 	b.seekOut(b.Line.Pos() - lw)
 }

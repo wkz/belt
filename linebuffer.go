@@ -12,7 +12,7 @@ type LineBuffer struct {
 }
 
 func NewLineBuffer(size uint) *LineBuffer {
-	return &LineBuffer{ buf: make([]rune, 0, size) }
+	return &LineBuffer{buf: make([]rune, 0, size)}
 }
 
 func (lb LineBuffer) Pos() int {
@@ -29,9 +29,10 @@ func (lb LineBuffer) PreviousWord() string {
 	if lb.pos == 0 {
 		return ""
 	}
-	
+
 	for i = lb.pos - 1; i > 0; i -= 1 {
 		if unicode.IsSpace(lb.buf[i]) {
+			i += 1
 			break
 		}
 	}
@@ -60,28 +61,27 @@ func (lb *LineBuffer) Seek(offs int, whence int) int {
 	} else if whence == os.SEEK_END {
 		new = len(lb.buf) + offs
 	}
-	
+
 	if new < 0 {
 		new = 0
 	} else if new >= len(lb.buf) {
 		new = len(lb.buf)
 	}
-	
+
 	lb.pos = new
 	return lb.pos
 }
-	
 
 func (lb *LineBuffer) Insert(s string) {
 	width := utf8.RuneCountInString(s)
-	
+
 	// make room for `s`
-	if len(lb.buf) + width > cap(lb.buf) {
-		tmp := make([]rune, len(lb.buf) + width)
+	if len(lb.buf)+width > cap(lb.buf) {
+		tmp := make([]rune, len(lb.buf)+width)
 		copy(tmp, lb.buf)
 		lb.buf = tmp
 	} else {
-		lb.buf = lb.buf[:len(lb.buf) + width]
+		lb.buf = lb.buf[:len(lb.buf)+width]
 	}
 
 	// bump the right portion of the string `len(s)` steps
@@ -99,13 +99,13 @@ func (lb *LineBuffer) Delete(n int) (killed string) {
 	} else if n > lb.pos {
 		n = lb.pos
 	}
-	
-	killed = string(lb.buf[lb.pos:lb.pos + n])
+
+	killed = string(lb.buf[lb.pos : lb.pos+n])
 
 	if lb.pos == len(lb.buf) {
-		lb.buf = lb.buf[:len(lb.buf) - n]
+		lb.buf = lb.buf[:len(lb.buf)-n]
 	} else {
-		lb.buf = append(lb.buf[:lb.pos - n], lb.buf[lb.pos:]...)
+		lb.buf = append(lb.buf[:lb.pos-n], lb.buf[lb.pos:]...)
 	}
 
 	lb.pos -= n
